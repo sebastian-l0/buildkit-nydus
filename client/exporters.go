@@ -6,4 +6,5 @@ const (
 	ExporterTar    = "tar"
 	ExporterOCI    = "oci"
 	ExporterDocker = "docker"
+	ExporterNydus  = "nydus"
 )

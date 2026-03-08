@@ -24,6 +24,7 @@ import (
 	"github.com/moby/buildkit/exporter"
 	imageexporter "github.com/moby/buildkit/exporter/containerimage"
 	localexporter "github.com/moby/buildkit/exporter/local"
+	nydusexporter "github.com/moby/buildkit/exporter/nydus"
 	ociexporter "github.com/moby/buildkit/exporter/oci"
 	tarexporter "github.com/moby/buildkit/exporter/tar"
 	"github.com/moby/buildkit/frontend"
@@ -564,6 +565,12 @@ func (w *Worker) Exporter(name string, sm *session.Manager) (exporter.Exporter, 
 			SessionManager: sm,
 			ImageWriter:    w.imageWriter,
 			Variant:        ociexporter.VariantDocker,
+			LeaseManager:   w.LeaseManager(),
+		})
+	case client.ExporterNydus:
+		return nydusexporter.New(nydusexporter.Opt{
+			SessionManager: sm,
+			ImageWriter:    w.imageWriter,
 			LeaseManager:   w.LeaseManager(),
 		})
 	default:
