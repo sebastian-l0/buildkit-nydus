@@ -7,7 +7,6 @@ import (
 	"github.com/containerd/containerd/v2/core/leases"
 	"github.com/moby/buildkit/exporter"
 	"github.com/moby/buildkit/exporter/containerimage"
-	"github.com/moby/buildkit/nydus/converter"
 	"github.com/moby/buildkit/session"
 	"github.com/pkg/errors"
 )

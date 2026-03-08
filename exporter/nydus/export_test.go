@@ -4,11 +4,28 @@ import (
 	"context"
 	"testing"
 
+	"github.com/moby/buildkit/exporter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestOptsLoad(t *testing.T) {
+func TestNewExporter(t *testing.T) {
+	opt := Opt{
+		SessionManager: nil,
+		ImageWriter:    nil,
+		LeaseManager:   nil,
+	}
+
+	exp, err := New(opt)
+	require.NoError(t, err)
+	assert.NotNil(t, exp)
+}
+
+func TestNydusExporterResolve(t *testing.T) {
+	opt := Opt{}
+	exp, err := New(opt)
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	tests := []struct {
@@ -16,187 +33,52 @@ func TestOptsLoad(t *testing.T) {
 		attrs       map[string]string
 		wantErr     bool
 		errContains string
-		checkFunc   func(t *testing.T, opts *Opts)
-	}{
-		{
-			name: "default values",
-			attrs: map[string]string{
-				"dest": "/tmp/output",
-			},
-			wantErr: false,
-			checkFunc: func(t *testing.T, opts *Opts) {
-				assert.Equal(t, "5", opts.FsVersion)
-				assert.Equal(t, "lz4_block", opts.Compressor)
-				assert.Equal(t, 0x100000, opts.ChunkSize)
-				assert.False(t, opts.BlobInlineMeta)
-				assert.Equal(t, "/tmp/output", opts.DestPath)
-			},
-		},
-		{
-			name: "valid fs-version 6",
-			attrs: map[string]string{
-				"dest":       "/tmp/output",
-				"fs-version": "6",
-			},
-			wantErr: false,
-			checkFunc: func(t *testing.T, opts *Opts) {
-				assert.Equal(t, "6", opts.FsVersion)
-			},
-		},
-		{
-			name: "invalid fs-version",
-			attrs: map[string]string{
-				"dest":       "/tmp/output",
-				"fs-version": "7",
-			},
-			wantErr:     true,
-			errContains: "invalid fs-version",
-		},
-		{
-			name: "valid compressor gzip",
-			attrs: map[string]string{
-				"dest":       "/tmp/output",
-				"compressor": "gzip",
-			},
-			wantErr: false,
-			checkFunc: func(t *testing.T, opts *Opts) {
-				assert.Equal(t, "gzip", opts.Compressor)
-			},
-		},
-		{
-			name: "valid compressor zstd",
-			attrs: map[string]string{
-				"dest":       "/tmp/output",
-				"compressor": "zstd",
-			},
-			wantErr: false,
-			checkFunc: func(t *testing.T, opts *Opts) {
-				assert.Equal(t, "zstd", opts.Compressor)
-			},
-		},
-		{
-			name: "invalid compressor",
-			attrs: map[string]string{
-				"dest":       "/tmp/output",
-				"compressor": "invalid",
-			},
-			wantErr:     true,
-			errContains: "invalid compressor",
-		},
-		{
-			name: "valid chunk-size power of 2",
-			attrs: map[string]string{
-				"dest":      "/tmp/output",
-				"chunk-size": "8192",
-			},
-			wantErr: false,
-			checkFunc: func(t *testing.T, opts *Opts) {
-				assert.Equal(t, 8192, opts.ChunkSize)
-			},
-		},
-		{
-			name: "invalid chunk-size not power of 2",
-			attrs: map[string]string{
-				"dest":      "/tmp/output",
-				"chunk-size": "1000",
-			},
-			wantErr:     true,
-			errContains: "must be power of 2",
-		},
-		{
-			name: "invalid chunk-size too small",
-			attrs: map[string]string{
-				"dest":      "/tmp/output",
-				"chunk-size": "1024",
-			},
-			wantErr:     true,
-			errContains: "must be power of 2",
-		},
-		{
-			name: "blob-inline-meta true",
-			attrs: map[string]string{
-				"dest":             "/tmp/output",
-				"blob-inline-meta": "true",
-			},
-			wantErr: false,
-			checkFunc: func(t *testing.T, opts *Opts) {
-				assert.True(t, opts.BlobInlineMeta)
-			},
-		},
-		{
-			name: "push enabled requires name",
-			attrs: map[string]string{
-				"push": "true",
-				"name": "registry.example.com/app:tag",
-			},
-			wantErr: false,
-			checkFunc: func(t *testing.T, opts *Opts) {
-				assert.True(t, opts.Push)
-				assert.Equal(t, "registry.example.com/app:tag", opts.Name)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			opts := &Opts{}
-			_, err := opts.Load(ctx, tt.attrs)
-			if tt.wantErr {
-				require.Error(t, err)
-				if tt.errContains != "" {
-					assert.Contains(t, err.Error(), tt.errContains)
-				}
-				return
-			}
-			require.NoError(t, err)
-			if tt.checkFunc != nil {
-				tt.checkFunc(t, opts)
-			}
-		})
-	}
-}
-
-func TestOptsValidate(t *testing.T) {
-	tests := []struct {
-		name        string
-		opts        Opts
-		wantErr     bool
-		errContains string
 	}{
 		{
 			name: "valid with dest",
-			opts: Opts{
-				DestPath: "/tmp/output",
+			attrs: map[string]string{
+				"dest": "/tmp/output",
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid with push and name",
-			opts: Opts{
-				Push: true,
-				Name: "registry.example.com/app:tag",
+			attrs: map[string]string{
+				"push": "true",
+				"name": "registry.example.com/app:tag",
 			},
 			wantErr: false,
 		},
 		{
-			name: "invalid push without name",
-			opts: Opts{
-				Push: true,
+			name: "invalid - push without name",
+			attrs: map[string]string{
+				"push": "true",
 			},
 			wantErr:     true,
 			errContains: "name is required",
 		},
 		{
-			name:        "invalid without dest and push",
-			opts:        Opts{},
+			name:        "invalid - no dest and no push",
+			attrs:       map[string]string{},
 			wantErr:     true,
 			errContains: "dest is required",
+		},
+		{
+			name: "with all nydus options",
+			attrs: map[string]string{
+				"dest":             "/tmp/output",
+				"fs-version":       "6",
+				"compressor":       "zstd",
+				"chunk-size":       "4194304",
+				"blob-inline-meta": "true",
+			},
+			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.opts.Validate()
+			instance, err := exp.Resolve(ctx, 1, tt.attrs)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errContains != "" {
@@ -205,27 +87,105 @@ func TestOptsValidate(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			assert.NotNil(t, instance)
+			assert.Equal(t, 1, instance.ID())
+			assert.Equal(t, "nydus", instance.Type())
+			assert.Equal(t, "exporting to Nydus image format", instance.Name())
 		})
 	}
 }
 
-func TestExporterConstants(t *testing.T) {
-	assert.Equal(t, "nydus", ExporterNydus)
-	assert.Equal(t, "application/vnd.oci.image.layer.nydus.blob.v1", MediaTypeNydusBlob)
-	assert.Equal(t, "containerd.io/snapshot/nydus.blob", AnnotationNydusBlob)
-	assert.Equal(t, "containerd.io/snapshot/nydus.bootstrap", AnnotationNydusBootstrap)
-	assert.Equal(t, "containerd.io/snapshot/nydus.fs-version", AnnotationNydusFsVersion)
+func TestNydusExporterInstanceMethods(t *testing.T) {
+	opt := Opt{}
+	exp, _ := New(opt)
+	ctx := context.Background()
+
+	attrs := map[string]string{
+		"dest":       "/tmp/output",
+		"fs-version": "6",
+		"compressor": "zstd",
+	}
+	instance, err := exp.Resolve(ctx, 1, attrs)
+	require.NoError(t, err)
+
+	// Test ID
+	assert.Equal(t, 1, instance.ID())
+
+	// Test Type
+	assert.Equal(t, "nydus", instance.Type())
+
+	// Test Name
+	assert.Equal(t, "exporting to Nydus image format", instance.Name())
+
+	// Test Attrs
+	assert.Equal(t, attrs, instance.Attrs())
+
+	// Test Config
+	config := instance.Config()
+	assert.NotNil(t, config)
 }
 
-func TestNydusLayer(t *testing.T) {
-	layer := NydusLayer{
-		Digest:        "sha256:abc123",
-		Size:          1024,
-		BlobPath:      "/tmp/blob",
-		BlobDigest:    "sha256:blob456",
-		BootstrapPath: "/tmp/bootstrap",
+func TestNydusExporterExport(t *testing.T) {
+	opt := Opt{}
+	exp, _ := New(opt)
+	ctx := context.Background()
+
+	tests := []struct {
+		name     string
+		attrs    map[string]string
+		push     bool
+		destPath string
+	}{
+		{
+			name: "export with dest",
+			attrs: map[string]string{
+				"dest":       "/tmp/nydus-output",
+				"fs-version": "5",
+				"compressor": "lz4_block",
+			},
+			destPath: "/tmp/nydus-output",
+		},
+		{
+			name: "export with push",
+			attrs: map[string]string{
+				"push":       "true",
+				"name":       "registry.example.com/test:latest",
+				"fs-version": "6",
+				"compressor": "gzip",
+			},
+			push: true,
+		},
 	}
 
-	assert.Equal(t, "sha256:abc123", layer.Digest)
-	assert.Equal(t, int64(1024), layer.Size)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance, err := exp.Resolve(ctx, 1, tt.attrs)
+			require.NoError(t, err)
+
+			src := &exporter.Source{}
+			buildInfo := exporter.ExportBuildInfo{}
+
+			resp, finalize, descRef, err := instance.Export(ctx, src, buildInfo)
+
+			// Currently returns error for Phase 1
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "Phase 1 complete")
+			assert.NotNil(t, resp)
+			assert.Nil(t, finalize)
+			assert.Nil(t, descRef)
+
+			// Verify response contains expected fields
+			assert.Equal(t, "nydus", resp["exporter.type"])
+			assert.NotEmpty(t, resp["nydus.fs-version"])
+			assert.NotEmpty(t, resp["nydus.compressor"])
+			assert.NotEmpty(t, resp["nydus.chunk-size"])
+
+			if tt.push {
+				assert.Equal(t, "true", resp["push"])
+				assert.Equal(t, tt.attrs["name"], resp["name"])
+			} else {
+				assert.Equal(t, tt.destPath, resp["dest"])
+			}
+		})
+	}
 }

@@ -3,8 +3,6 @@ package nydus
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 
 	"github.com/moby/buildkit/nydus/converter"

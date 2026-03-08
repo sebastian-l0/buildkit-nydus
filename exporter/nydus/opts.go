@@ -98,11 +98,11 @@ func (o *Opts) Load(ctx context.Context, attrs map[string]string) (map[string]st
 	}
 
 	// Parse compression options
-	comp, err := compression.Parse(remaining)
+	compConfig, err := compression.ParseAttributes(remaining)
 	if err != nil {
 		return nil, err
 	}
-	o.RefCfg.Compression = comp
+	o.RefCfg.Compression = compConfig
 
 	return remaining, nil
 }

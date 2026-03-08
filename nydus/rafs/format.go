@@ -107,17 +107,17 @@ type Inode struct {
 
 // IsDir returns true if the inode is a directory
 func (i *Inode) IsDir() bool {
-	return i.Mode&0o040000 != 0
+	return i.Mode&0o170000 == 0o040000
 }
 
 // IsReg returns true if the inode is a regular file
 func (i *Inode) IsReg() bool {
-	return i.Mode&0o100000 != 0
+	return i.Mode&0o170000 == 0o100000
 }
 
 // IsSymlink returns true if the inode is a symlink
 func (i *Inode) IsSymlink() bool {
-	return i.Mode&0o120000 != 0
+	return i.Mode&0o170000 == 0o120000
 }
 
 // CalculateCrc32 calculates CRC32 checksum for data

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/moby/buildkit/nydus/rafs"
 	"github.com/opencontainers/go-digest"
@@ -114,7 +115,7 @@ func (sc *StreamConverter) Convert(ctx context.Context, layer LayerStream) (*RAF
 	builder := rafs.NewBootstrapBuilder("6", sc.chunkSize)
 	
 	// Add root inode
-	root, err := builder.AddNode("", 0o040755, 0, layer.DiffID.Timestamp(), 0, 0, "")
+	root, err := builder.AddNode("", 0o040755, 0, time.Now(), 0, 0, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to add root: %w", err)
 	}
