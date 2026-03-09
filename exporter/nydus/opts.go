@@ -19,6 +19,7 @@ type Opts struct {
 	Compressor     string
 	ChunkSize      int
 	BlobInlineMeta bool
+	Parallelism    int
 
 	// Output options
 	DestPath string
@@ -66,6 +67,15 @@ func (o *Opts) Load(ctx context.Context, attrs map[string]string) (map[string]st
 				return nil, errors.Wrapf(err, "non-bool value specified for %s", k)
 			}
 			o.BlobInlineMeta = b
+		case "parallelism":
+			p, err := strconv.Atoi(v)
+			if err != nil {
+				return nil, errors.Wrapf(err, "invalid parallelism %q", v)
+			}
+			if p < 1 {
+				p = 1
+			}
+			o.Parallelism = p
 		case "dest":
 			o.DestPath = v
 		case "push":

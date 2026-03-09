@@ -167,9 +167,9 @@ func TestNydusExporterExport(t *testing.T) {
 
 			resp, finalize, descRef, err := instance.Export(ctx, src, buildInfo)
 
-			// Currently returns error for Phase 1
+			// Currently returns error for Phase 2
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "Phase 1 complete")
+			assert.Contains(t, err.Error(), "no layers to export")
 			assert.NotNil(t, resp)
 			assert.Nil(t, finalize)
 			assert.Nil(t, descRef)
