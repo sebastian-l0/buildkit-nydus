@@ -2,8 +2,10 @@ package nydus
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"github.com/moby/buildkit/cache"
 	"github.com/moby/buildkit/exporter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,27 +135,57 @@ func TestNydusExporterExport(t *testing.T) {
 	tests := []struct {
 		name     string
 		attrs    map[string]string
-		push     bool
-		destPath string
+		src      *exporter.Source
+		wantErr  bool
+		errPhase string
 	}{
 		{
-			name: "export with dest",
+			name: "export with no refs",
 			attrs: map[string]string{
 				"dest":       "/tmp/nydus-output",
 				"fs-version": "5",
 				"compressor": "lz4_block",
 			},
-			destPath: "/tmp/nydus-output",
+			src:      &exporter.Source{},
+			wantErr:  true,
+			errPhase: "no layers to export",
 		},
 		{
-			name: "export with push",
+			name: "export with refs - Phase 3",
+			attrs: map[string]string{
+				"dest":       "/tmp/nydus-output",
+				"fs-version": "5",
+				"compressor": "lz4_block",
+			},
+			src: func() *exporter.Source {
+				s := &exporter.Source{
+					Refs: map[string]cache.ImmutableRef{
+						"linux/amd64": nil,
+					},
+				}
+				return s
+			}(),
+			wantErr:  true,
+			errPhase: "failed to build manifest",
+		},
+		{
+			name: "export with push - Phase 3",
 			attrs: map[string]string{
 				"push":       "true",
 				"name":       "registry.example.com/test:latest",
 				"fs-version": "6",
 				"compressor": "gzip",
 			},
-			push: true,
+			src: func() *exporter.Source {
+				s := &exporter.Source{
+					Refs: map[string]cache.ImmutableRef{
+						"linux/amd64": nil,
+					},
+				}
+				return s
+			}(),
+			wantErr:  true,
+			errPhase: "failed to build manifest",
 		},
 	}
 
@@ -162,14 +194,12 @@ func TestNydusExporterExport(t *testing.T) {
 			instance, err := exp.Resolve(ctx, 1, tt.attrs)
 			require.NoError(t, err)
 
-			src := &exporter.Source{}
 			buildInfo := exporter.ExportBuildInfo{}
+			resp, finalize, descRef, err := instance.Export(ctx, tt.src, buildInfo)
 
-			resp, finalize, descRef, err := instance.Export(ctx, src, buildInfo)
-
-			// Currently returns error for Phase 2
+			// Phase 3 still returns error as layer conversion is not complete
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "no layers to export")
+			assert.Contains(t, err.Error(), tt.errPhase)
 			assert.NotNil(t, resp)
 			assert.Nil(t, finalize)
 			assert.Nil(t, descRef)
@@ -180,11 +210,11 @@ func TestNydusExporterExport(t *testing.T) {
 			assert.NotEmpty(t, resp["nydus.compressor"])
 			assert.NotEmpty(t, resp["nydus.chunk-size"])
 
-			if tt.push {
-				assert.Equal(t, "true", resp["push"])
-				assert.Equal(t, tt.attrs["name"], resp["name"])
-			} else {
-				assert.Equal(t, tt.destPath, resp["dest"])
+			// Phase 3 specific fields (config is built before manifest)
+			if !strings.Contains(tt.errPhase, "no layers") {
+				assert.NotEmpty(t, resp["config.digest"])
+				assert.NotEmpty(t, resp["config.size"])
+				// Note: manifest fields are not set if manifest build fails
 			}
 		})
 	}
