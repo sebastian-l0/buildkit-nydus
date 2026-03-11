@@ -3,6 +3,7 @@ package nydus
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -89,10 +90,12 @@ func (b *ManifestBuilder) BuildManifest(
 }
 
 // readBootstrapFile reads the bootstrap file content
-// This is a helper that will be replaced with actual file reading
 func readBootstrapFile(path string) ([]byte, error) {
-	// TODO: Replace with actual file reading in next commit
-	return []byte("placeholder"), nil
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read bootstrap file %q: %w", path, err)
+	}
+	return data, nil
 }
 
 // ManifestToJSON serializes the manifest to JSON

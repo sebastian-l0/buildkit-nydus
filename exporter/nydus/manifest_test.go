@@ -1,6 +1,8 @@
 package nydus
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -18,65 +20,106 @@ func TestManifestBuilder_BuildManifest(t *testing.T) {
 		Size:      100,
 	}
 
+	// Create temp directory for bootstrap files
+	tempDir := t.TempDir()
+
 	tests := []struct {
 		name        string
-		layers      []NydusLayer
+		setupLayers func() ([]NydusLayer, func())
 		wantErr     bool
 		errContains string
 	}{
 		{
-			name:    "empty layers",
-			layers:  []NydusLayer{},
+			name: "empty layers",
+			setupLayers: func() ([]NydusLayer, func()) {
+				return []NydusLayer{}, func() {}
+			},
 			wantErr: true,
 		},
 		{
 			name: "single layer",
-			layers: []NydusLayer{
-				{
-					Digest:        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-					Size:          1024,
-					BlobDigest:    "sha256:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
-					BootstrapPath: "/tmp/bootstrap",
-				},
+			setupLayers: func() ([]NydusLayer, func()) {
+				bootstrapPath := filepath.Join(tempDir, "bootstrap1")
+				err := os.WriteFile(bootstrapPath, []byte("bootstrap data 1"), 0644)
+				require.NoError(t, err)
+				return []NydusLayer{
+					{
+						Digest:        digest.FromString("bootstrap data 1").String(),
+						Size:          1024,
+						BlobDigest:    "sha256:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+						BootstrapPath: bootstrapPath,
+					},
+				}, func() {}
 			},
 			wantErr: false,
 		},
 		{
 			name: "multiple layers",
-			layers: []NydusLayer{
-				{
-					Digest:        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-					Size:          1024,
-					BlobDigest:    "sha256:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
-					BootstrapPath: "/tmp/bootstrap1",
-				},
-				{
-					Digest:        "sha256:6ae8a75555209fd6c44157c0aed8026e7639d7783f0c9a6f9f6a5c8e7d5e2f1a",
-					Size:          2048,
-					BlobDigest:    "sha256:7af8b86666310fd6c55268c0aed9137f8743d7784f1c9b6a9f7b6d9e8f6e3a2b",
-					BootstrapPath: "/tmp/bootstrap2",
-				},
+			setupLayers: func() ([]NydusLayer, func()) {
+				bootstrapPath1 := filepath.Join(tempDir, "bootstrap1")
+				bootstrapPath2 := filepath.Join(tempDir, "bootstrap2")
+				err := os.WriteFile(bootstrapPath1, []byte("bootstrap data 1"), 0644)
+				require.NoError(t, err)
+				err = os.WriteFile(bootstrapPath2, []byte("bootstrap data 2 longer"), 0644)
+				require.NoError(t, err)
+				return []NydusLayer{
+					{
+						Digest:        digest.FromString("bootstrap data 1").String(),
+						Size:          1024,
+						BlobDigest:    "sha256:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+						BootstrapPath: bootstrapPath1,
+					},
+					{
+						Digest:        digest.FromString("bootstrap data 2 longer").String(),
+						Size:          2048,
+						BlobDigest:    "sha256:7af8b86666310fd6c55268c0aed9137f8743d7784f1c9b6a9f7b6d9e8f6e3a2b",
+						BootstrapPath: bootstrapPath2,
+					},
+				}, func() {}
 			},
 			wantErr: false,
 		},
 		{
 			name: "invalid blob digest",
-			layers: []NydusLayer{
-				{
-					Digest:        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-					Size:          1024,
-					BlobDigest:    "invalid-digest",
-					BootstrapPath: "/tmp/bootstrap",
-				},
+			setupLayers: func() ([]NydusLayer, func()) {
+				bootstrapPath := filepath.Join(tempDir, "bootstrap_invalid")
+				err := os.WriteFile(bootstrapPath, []byte("data"), 0644)
+				require.NoError(t, err)
+				return []NydusLayer{
+					{
+						Digest:        "sha256:" + digest.FromString("data").String(),
+						Size:          1024,
+						BlobDigest:    "invalid-digest",
+						BootstrapPath: bootstrapPath,
+					},
+				}, func() {}
 			},
 			wantErr:     true,
 			errContains: "invalid blob digest",
+		},
+		{
+			name: "missing bootstrap file",
+			setupLayers: func() ([]NydusLayer, func()) {
+				return []NydusLayer{
+					{
+						Digest:        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+						Size:          1024,
+						BlobDigest:    "sha256:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+						BootstrapPath: "/nonexistent/path/bootstrap",
+					},
+				}, func() {}
+			},
+			wantErr:     true,
+			errContains: "failed to read bootstrap",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manifest, err := builder.BuildManifest(configDesc, tt.layers)
+			layers, cleanup := tt.setupLayers()
+			defer cleanup()
+
+			manifest, err := builder.BuildManifest(configDesc, layers)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -95,10 +138,10 @@ func TestManifestBuilder_BuildManifest(t *testing.T) {
 			require.Equal(t, "5", manifest.Annotations[AnnotationNydusFsVersion])
 
 			// Check layers: n blobs + 1 bootstrap
-			require.Equal(t, len(tt.layers)+1, len(manifest.Layers))
+			require.Equal(t, len(layers)+1, len(manifest.Layers))
 
 			// Check blob layers
-			for i, layer := range tt.layers {
+			for i, layer := range layers {
 				require.Equal(t, MediaTypeNydusBlob, manifest.Layers[i].MediaType)
 				require.Equal(t, layer.BlobDigest, manifest.Layers[i].Annotations[AnnotationNydusBlob])
 				require.Equal(t, layer.Size, manifest.Layers[i].Size)
@@ -123,12 +166,17 @@ func TestManifestBuilder_BuildManifest_ValidatesAnnotations(t *testing.T) {
 		Size:      100,
 	}
 
+	tempDir := t.TempDir()
+	bootstrapPath := filepath.Join(tempDir, "bootstrap")
+	err := os.WriteFile(bootstrapPath, []byte("bootstrap data"), 0644)
+	require.NoError(t, err)
+
 	layers := []NydusLayer{
 		{
-			Digest:        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			Digest:        digest.FromString("bootstrap data").String(),
 			Size:          1024,
 			BlobDigest:    "sha256:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
-			BootstrapPath: "/tmp/bootstrap",
+			BootstrapPath: bootstrapPath,
 		},
 	}
 
