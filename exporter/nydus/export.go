@@ -7,7 +7,6 @@ import (
 	"github.com/containerd/containerd/v2/core/leases"
 	"github.com/moby/buildkit/exporter"
 	"github.com/moby/buildkit/exporter/containerimage"
-	"github.com/moby/buildkit/nydus/converter"
 	"github.com/moby/buildkit/session"
 	"github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
@@ -78,6 +77,11 @@ func (e *nydusExporterInstance) Config() *exporter.Config {
 	return exporter.NewConfigWithCompression(e.opts.RefCfg.Compression)
 }
 
+// ConvertedLayer represents a layer converted to Nydus format
+type ConvertedLayer struct {
+	NydusLayer
+}
+
 func (e *nydusExporterInstance) Export(ctx context.Context, src *exporter.Source, buildInfo exporter.ExportBuildInfo) (map[string]string, exporter.FinalizeFunc, exporter.DescriptorReference, error) {
 	resp := make(map[string]string)
 	resp["exporter.type"] = ExporterNydus
@@ -92,54 +96,67 @@ func (e *nydusExporterInstance) Export(ctx context.Context, src *exporter.Source
 		resp["dest"] = e.opts.DestPath
 	}
 
-	// Phase 2: Implement layer conversion
-	// Check if we have references to convert
-	if len(src.Refs) == 0 {
+	// Phase 3: Build config and manifest
+	refCount := len(src.Refs)
+	if src.Ref != nil {
+		refCount++
+	}
+	if refCount == 0 {
 		return resp, nil, nil, errors.New("no layers to export")
 	}
 
-	// Create converter
-	conv := converter.NewStreamConverter(
-		e.opts.ChunkSize/4,     // min chunk size
-		e.opts.ChunkSize,       // avg chunk size
-		e.opts.ChunkSize*4,     // max chunk size
-		e.opts.Compressor,
-		e.opts.Parallelism,
-	)
-
-	// Convert each layer
-	var convertedLayers []*converter.RAFSPair
-	for idx, ref := range src.Refs {
-		if ref == nil {
-			continue
-		}
-
-		// Get the layer result
-		// TODO: In real implementation, need to get the actual layer reader from ref
-		// For now, this is a placeholder that shows the structure
-		_ = idx
-		_ = conv
-
-		// layerStream := converter.LayerStream{
-		// 	Digest:    ref.GetDescription().Digest,
-		// 	Size:      ref.GetDescription().Size,
-		// 	Reader:    ref.GetReader(),
-		// 	DiffID:    ref.GetDiffID(),
-		// 	MediaType: ref.GetDescription().MediaType,
-		// }
-
-		// pair, err := conv.Convert(ctx, layerStream)
-		// if err != nil {
-		// 	return nil, nil, nil, errors.Wrapf(err, "failed to convert layer %d", idx)
-		// }
-		// convertedLayers = append(convertedLayers, pair)
+	// Create config builder and build OCI config
+	configBuilder := NewConfigBuilder()
+	config, err := configBuilder.BuildConfig("", "", refCount)
+	if err != nil {
+		return resp, nil, nil, errors.Wrap(err, "failed to build image config")
 	}
 
-	// Store conversion results in response
-	resp["nydus.layers.converted"] = fmt.Sprintf("%d", len(convertedLayers))
+	// Get config descriptor
+	configDesc, configData, err := ConfigToDescriptor(config)
+	if err != nil {
+		return resp, nil, nil, errors.Wrap(err, "failed to serialize config")
+	}
 
-	// Phase 2: Partial implementation - full layer conversion in Phase 3
-	return resp, nil, nil, errors.New("nydus exporter: Phase 2 - layer conversion framework ready, full implementation in Phase 3")
+	resp["config.digest"] = configDesc.Digest.String()
+	resp["config.size"] = fmt.Sprintf("%d", configDesc.Size)
+
+	// Create manifest builder
+	manifestBuilder := NewManifestBuilder(e.opts.FsVersion, e.opts.Compressor)
+
+	// Build sample layers for demonstration (Phase 3: placeholder layers)
+	layers := []NydusLayer{
+		{
+			Digest:        configDesc.Digest.String(),
+			Size:          configDesc.Size,
+			BlobDigest:    digest.FromBytes(configData).String(),
+			BootstrapPath: "/tmp/bootstrap", // Placeholder
+		},
+	}
+
+	// Build manifest
+	manifest, err := manifestBuilder.BuildManifest(configDesc, layers)
+	if err != nil {
+		return resp, nil, nil, errors.Wrap(err, "failed to build manifest")
+	}
+
+	// Serialize manifest
+	manifestJSON, err := ManifestToJSON(manifest)
+	if err != nil {
+		return resp, nil, nil, errors.Wrap(err, "failed to serialize manifest")
+	}
+
+	manifestDigest, err := CalculateManifestDigest(manifest)
+	if err != nil {
+		return resp, nil, nil, errors.Wrap(err, "failed to calculate manifest digest")
+	}
+
+	resp["manifest.digest"] = manifestDigest.String()
+	resp["manifest.size"] = fmt.Sprintf("%d", len(manifestJSON))
+	resp["nydus.layers.count"] = fmt.Sprintf("%d", len(manifest.Layers))
+
+	// Phase 3: Config and manifest generation complete
+	return resp, nil, nil, errors.New("nydus exporter: Phase 3 - Config and manifest generation complete. Full layer conversion integration in Phase 4")
 }
 
 // Helper function to create Nydus annotations
